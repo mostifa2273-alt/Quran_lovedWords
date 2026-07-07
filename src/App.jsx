@@ -140,6 +140,7 @@ export default function App() {
   }
 
   function leaveRoom() {
+    send({ type: "leave" });
     wsRef.current?.close();
     wsRef.current = null;
     setConnected(false);
@@ -279,7 +280,7 @@ export default function App() {
             >
               <div>
                 <b>{player.name}</b>
-                <span>{player.id === youId ? "تو" : `بازیکن ${player.number}`}</span>
+                <span>{player.id === youId ? "تو" : `بازیکن ${player.number}`}{player.connected === false ? " • قطع شده" : ""}</span>
               </div>
               <strong>{player.score}</strong>
             </article>
