@@ -1,5 +1,5 @@
 import React, { useMemo, useRef, useState } from "react";
-import { DATA, groupLabel, groupSymbol } from "./game-data.js";
+import { CARD_COUNT_OPTIONS, DATA, groupLabel, groupSymbol, normalizeGameOptions } from "./game-data.js";
 
 function randomRoomCode() {
   const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
@@ -41,6 +41,8 @@ export default function App() {
   const [state, setState] = useState(null);
   const [error, setError] = useState("");
   const [showReview, setShowReview] = useState(false);
+  const [gamePairCount, setGamePairCount] = useState(10);
+  const [gameGroup, setGameGroup] = useState("all");
 
   const you = useMemo(() => state?.players?.find((player) => player.id === youId) || null, [state, youId]);
 
@@ -49,7 +51,7 @@ export default function App() {
     return player?.name || "بازیکن";
   }, [state]);
 
-  function connect(roomCode) {
+  function connect(roomCode, options = null) {
     const cleanName = (name.trim() || "بازیکن").slice(0, 24);
     const cleanRoom = cleanRoomCode(roomCode);
 
@@ -62,7 +64,14 @@ export default function App() {
     setConnecting(true);
     setError("");
 
-    const ws = new WebSocket(`${websocketBase()}/ws/${cleanRoom}?name=${encodeURIComponent(cleanName)}`);
+    const params = new URLSearchParams({ name: cleanName });
+    if (options) {
+      const settings = normalizeGameOptions(options);
+      params.set("pairCount", String(settings.pairCount));
+      params.set("group", settings.group);
+    }
+
+    const ws = new WebSocket(`${websocketBase()}/ws/${cleanRoom}?${params.toString()}`);
 
     ws.onopen = () => {
       setConnected(true);
@@ -111,7 +120,7 @@ export default function App() {
   function createRoom() {
     const code = randomRoomCode();
     setRoomInput(code);
-    connect(code);
+    connect(code, { pairCount: gamePairCount, group: gameGroup });
   }
 
   function joinRoom() {
@@ -170,6 +179,37 @@ export default function App() {
               className="roomInput"
             />
           </label>
+
+          <section className="gameSetup">
+            <div>
+              <h2>تنظیمات ساخت بازی</h2>
+              <p>سازنده اتاق انتخاب می‌کند چند جفت کارت و کدام دسته در بازی باشد.</p>
+            </div>
+
+            <label>
+              تعداد جفت کارت‌ها
+              <select value={gamePairCount} onChange={(event) => setGamePairCount(Number(event.target.value))}>
+                {CARD_COUNT_OPTIONS.map((count) => (
+                  <option key={count} value={count}>
+                    {count} جفت ({count * 2} کارت)
+                  </option>
+                ))}
+              </select>
+            </label>
+
+            <div className="choiceGroup" role="radiogroup" aria-label="دسته کارت‌ها">
+              {["all", "love", "dislike"].map((group) => (
+                <button
+                  key={group}
+                  type="button"
+                  className={gameGroup === group ? "selected" : ""}
+                  onClick={() => setGameGroup(group)}
+                >
+                  {groupLabel(group)}
+                </button>
+              ))}
+            </div>
+          </section>
 
           {error ? <div className="error">{error}</div> : null}
 
@@ -259,6 +299,7 @@ export default function App() {
 
           <div className="miniStats">
             <span>جفت‌ها: {state.matchedCount}/{state.totalPairs}</span>
+            <span>دسته: {groupLabel(state.settings?.group || "all")}</span>
             <span>حرکت: {state.moves}</span>
             <span>خطا: {state.mistakes}</span>
           </div>
@@ -359,7 +400,7 @@ function ReviewPanel() {
 const css = `
 * { box-sizing: border-box; }
 body { margin: 0; }
-button, input { font-family: inherit; }
+button, input, select { font-family: inherit; }
 button { -webkit-tap-highlight-color: transparent; }
 .page {
   min-height: 100vh;
@@ -391,7 +432,7 @@ button { -webkit-tap-highlight-color: transparent; }
 h1 { margin: 0; font-size: 34px; line-height: 1.25; font-weight: 950; }
 p { color: #475569; line-height: 2; font-weight: 700; }
 label { display: grid; gap: 7px; margin-top: 12px; font-weight: 950; }
-input {
+input, select {
   width: 100%;
   border: 1px solid #e2e8f0;
   border-radius: 18px;
@@ -401,9 +442,24 @@ input {
   outline: none;
   background: white;
 }
-input:focus { border-color: #0f172a; }
+input:focus, select:focus { border-color: #0f172a; }
+select { cursor: pointer; }
 .roomInput { text-align: center; letter-spacing: .2em; font-weight: 950; }
 .lobbyActions, .topActions { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 16px; }
+.gameSetup {
+  margin-top: 16px;
+  padding: 14px;
+  border: 1px solid #e2e8f0;
+  border-radius: 24px;
+  background: #f8fafc;
+  display: grid;
+  gap: 12px;
+}
+.gameSetup h2 { margin: 0; font-size: 18px; font-weight: 950; }
+.gameSetup p { margin: 4px 0 0; }
+.choiceGroup { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.choiceGroup button { background: white; border: 1px solid #e2e8f0; color: #334155; }
+.choiceGroup button.selected { background: #0f172a; border-color: #0f172a; color: white; }
 button {
   border: 0;
   border-radius: 18px;
@@ -577,5 +633,6 @@ button:disabled { cursor: not-allowed; opacity: .55; }
   .grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .reviewHeader { grid-template-columns: 1fr; }
   .reviewGrid { grid-template-columns: 1fr; }
+  .choiceGroup { grid-template-columns: 1fr; }
 }
 `;
