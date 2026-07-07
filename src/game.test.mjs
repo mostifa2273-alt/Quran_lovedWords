@@ -21,4 +21,11 @@ assert.equal(isCorrectPair({ pairId: "x", side: "arabic" }, { pairId: "x", side:
 assert.equal(isCorrectPair({ pairId: "x", side: "arabic" }, { pairId: "x", side: "arabic" }), false);
 assert.equal(isCorrectPair({ pairId: "x", side: "arabic" }, { pairId: "y", side: "persian" }), false);
 
+const worker = await import("./worker.js");
+assert.equal(worker.ROOM_CODE_PATTERN.test("ABCDE"), true, "Room links should use five-character codes.");
+assert.equal(worker.ROOM_CODE_PATTERN.test("ABC"), false, "Short room codes are invalid.");
+assert.equal(worker.sanitizeName("  زینب  "), "زینب", "Names are trimmed.");
+assert.equal(worker.sanitizeName(""), "بازیکن", "Empty names get a Persian fallback.");
+assert.equal(worker.sanitizeClientId("stable-client_123"), "stable-client_123", "Reconnect client IDs are preserved.");
+
 console.log("All tests passed.");
