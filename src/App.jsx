@@ -44,12 +44,17 @@ export default function App() {
   const [gameGroup, setGameGroup] = useState("all");
   const [pairCount, setPairCount] = useState(12);
 
+  const lobbyPreview = useMemo(() => DATA.slice(0, 6), []);
+
   const you = useMemo(() => state?.players?.find((player) => player.id === youId) || null, [state, youId]);
 
   const currentTurnName = useMemo(() => {
     const player = state?.players?.find((item) => item.id === state.turnPlayerId);
     return player?.name || "بازیکن";
   }, [state]);
+
+  const progress = state ? Math.round((state.matchedCount / Math.max(state.totalPairs, 1)) * 100) : 0;
+  const bestPlayer = state?.players?.length ? [...state.players].sort((a, b) => b.score - a.score)[0] : null;
 
   function connect(roomCode) {
     const cleanName = (name.trim() || "بازیکن").slice(0, 24);
@@ -155,14 +160,34 @@ export default function App() {
     return (
       <main className="page" dir="rtl">
         <style>{css}</style>
-        <section className="lobby">
-          <div className="mihrab" aria-hidden="true">۞</div>
-          <div className="badge">بِسْمِ اللهِ الرَّحْمٰنِ الرَّحِيمِ</div>
-          <h1>بازی حافظه واژه‌های قرآنی</h1>
-          <p className="lead">
-            با آرامش یک محفل قرآنی بازی کن؛ یک نفر اتاق می‌سازد و کد ۵ حرفی را برای نفر دوم می‌فرستد.
-            جفت عربی و فارسی را پیدا کن و واژه‌هایی را که خدا دوست دارد یا دوست ندارد مرور کن.
-          </p>
+        <section className="lobby heroLobby">
+          <div className="aurora" aria-hidden="true"></div>
+          <div className="heroGrid">
+            <div className="heroCopy">
+              <div className="mihrab" aria-hidden="true">۞</div>
+              <div className="badge">Apple-style premium Quran memory duel</div>
+              <h1>بازی حافظه واژه‌های قرآنی</h1>
+              <p className="lead">
+                یک تجربه شیشه‌ای، آرام و مسابقه‌ای: اتاق بساز، کد را بفرست، کارت‌ها را با تمرکز برگردان و جفت عربی + فارسی را کشف کن.
+              </p>
+              <div className="featureRow" aria-label="ویژگی‌های تجربه بازی">
+                <span>Live duel</span>
+                <span>56 کارت</span>
+                <span>RTL crafted</span>
+              </div>
+            </div>
+            <div className="deviceMock" aria-label="پیش‌نمایش بازی">
+              <div className="dynamicIsland">محفل زنده</div>
+              <div className="mockBoard">
+                {lobbyPreview.map((item) => (
+                  <div key={item.id} className={`mockTile ${item.group}`}>
+                    <b>{groupSymbol(item.group)}</b>
+                    <span>{item.arabic}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
 
           <div className="islamicDivider" aria-hidden="true"><span></span><b>✦</b><span></span></div>
 
@@ -250,6 +275,7 @@ export default function App() {
       <style>{css}</style>
 
       <div className="shell">
+        <div className="ambientOrbs" aria-hidden="true"><span></span><span></span><span></span></div>
         <header className="top">
           <div>
             <div className="badge">اتاق {state.roomCode} • محفل قرآنی</div>
@@ -306,6 +332,10 @@ export default function App() {
             <b>{finished ? winnerText(state.players) : isYourTurn ? "نوبت توست" : `نوبت ${currentTurnName}`}</b>
             <span>{state.message}</span>
           </div>
+          <div className="progressRing" style={{ "--progress": `${progress}%` }} aria-label={`پیشرفت ${progress} درصد`}>
+            <strong>{progress}%</strong>
+            <small>کشف</small>
+          </div>
 
           <div className="miniStats">
             <span>۞ جفت‌ها: {state.matchedCount}/{state.totalPairs}</span>
@@ -315,6 +345,16 @@ export default function App() {
             <span>هلال خطا: {state.mistakes}</span>
           </div>
         </section>
+
+        {finished ? (
+          <section className="victoryBanner">
+            <span>🏆</span>
+            <div>
+              <b>{winnerText(state.players)}</b>
+              <p>{bestPlayer?.name || "بازیکن"} با {bestPlayer?.score || 0} جفت، محفل را به پایان رساند.</p>
+            </div>
+          </section>
+        ) : null}
 
         {error ? <div className="error">{error}</div> : null}
 
@@ -586,5 +626,47 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 .reviewCard.dislike .reviewTop b { background: #fee2e2; color: #dc2626; }
 .reviewArabic { direction: rtl; text-align: center; font-size: 23px; line-height: 2; font-weight: 950; color: var(--emerald-dark); padding: 10px; border-radius: 18px; background: rgba(255,248,231,.72); border: 1px solid rgba(201,151,43,.18); }
 .reviewPersian { margin-top: 10px; color: #475569; font-size: 14px; line-height: 1.9; font-weight: 850; text-align: center; }
-@media (max-width: 700px) { .choiceGrid { grid-template-columns: 1fr; } .page { padding: 10px; } .top { flex-direction: column; } h1 { font-size: 27px; } .status { flex-direction: column; align-items: stretch; } .grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } .reviewHeader { grid-template-columns: 1fr; } .reviewGrid { grid-template-columns: 1fr; } .lobby { padding: 22px; } }
+
+.heroLobby { max-width: 1120px; isolation: isolate; }
+.aurora, .ambientOrbs { position: absolute; inset: 0; overflow: hidden; pointer-events: none; z-index: 0; }
+.aurora::before, .aurora::after { content: ""; position: absolute; width: 360px; height: 360px; border-radius: 999px; filter: blur(18px); opacity: .38; animation: floatGlow 8s ease-in-out infinite alternate; }
+.aurora::before { background: #34d399; top: -110px; right: -80px; }
+.aurora::after { background: #facc15; bottom: -130px; left: -70px; animation-delay: -3s; }
+.heroLobby > :not(.aurora) { position: relative; z-index: 1; }
+.heroGrid { display: grid; grid-template-columns: minmax(0, 1fr) 360px; gap: 24px; align-items: center; }
+.heroCopy .mihrab { margin-right: 0; margin-left: auto; }
+.featureRow { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 14px; }
+.featureRow span { padding: 8px 12px; border-radius: 999px; color: #063f34; background: rgba(255,255,255,.58); border: 1px solid rgba(201,151,43,.26); font-size: 12px; font-weight: 950; box-shadow: inset 0 1px 0 rgba(255,255,255,.7); }
+.deviceMock { min-height: 440px; border-radius: 46px; padding: 18px; background: linear-gradient(160deg, rgba(8,56,47,.96), rgba(2,6,23,.94)); border: 1px solid rgba(255,255,255,.26); box-shadow: 0 30px 80px rgba(2,6,23,.34), inset 0 0 0 8px rgba(255,255,255,.08); transform: rotate(-2deg); }
+.dynamicIsland { width: 132px; margin: 0 auto 18px; text-align: center; border-radius: 999px; padding: 8px 10px; background: #030712; color: rgba(255,248,231,.9); font-size: 11px; font-weight: 950; }
+.mockBoard { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; }
+.mockTile { min-height: 112px; border-radius: 26px; padding: 12px; display: grid; place-items: center; text-align: center; color: #fff8e7; border: 1px solid rgba(255,255,255,.18); box-shadow: inset 0 1px 0 rgba(255,255,255,.18); }
+.mockTile.love { background: linear-gradient(145deg, rgba(16,185,129,.95), rgba(6,78,59,.96)); }
+.mockTile.dislike { background: linear-gradient(145deg, rgba(244,63,94,.94), rgba(127,29,29,.96)); }
+.mockTile b { width: 34px; height: 34px; display: grid; place-items: center; border-radius: 999px; background: rgba(255,255,255,.18); }
+.mockTile span { font-size: 13px; line-height: 1.8; font-weight: 950; }
+.shell { position: relative; isolation: isolate; }
+.ambientOrbs span { position: absolute; border-radius: 999px; filter: blur(20px); opacity: .26; animation: floatGlow 10s ease-in-out infinite alternate; }
+.ambientOrbs span:nth-child(1) { width: 220px; height: 220px; background: #34d399; top: 80px; right: -50px; }
+.ambientOrbs span:nth-child(2) { width: 190px; height: 190px; background: #facc15; top: 260px; left: -60px; animation-delay: -4s; }
+.ambientOrbs span:nth-child(3) { width: 160px; height: 160px; background: #fb7185; bottom: 60px; right: 20%; animation-delay: -7s; }
+.shell > :not(.ambientOrbs) { position: relative; z-index: 1; }
+.progressRing { --progress: 0%; width: 82px; height: 82px; flex: 0 0 auto; border-radius: 999px; display: grid; place-items: center; background: conic-gradient(#f7e7b1 var(--progress), rgba(255,248,231,.16) 0); box-shadow: inset 0 0 0 8px rgba(5,46,38,.92), 0 16px 28px rgba(0,0,0,.18); }
+.progressRing strong, .progressRing small { grid-area: 1 / 1; }
+.progressRing strong { color: #fff8e7; font-size: 17px; transform: translateY(-7px); }
+.progressRing small { color: rgba(255,248,231,.72); font-weight: 950; font-size: 10px; transform: translateY(13px); }
+.victoryBanner { display: flex; align-items: center; gap: 14px; padding: 18px; border-radius: 28px; background: linear-gradient(135deg, rgba(255,248,231,.95), rgba(247,231,177,.9)); border: 1px solid rgba(201,151,43,.48); box-shadow: 0 20px 55px rgba(4,45,35,.16); }
+.victoryBanner > span { width: 58px; height: 58px; display: grid; place-items: center; border-radius: 20px; background: linear-gradient(135deg, #f59e0b, #fef3c7); font-size: 28px; }
+.victoryBanner b { color: var(--emerald-dark); font-size: 20px; font-weight: 950; }
+.victoryBanner p { margin: 4px 0 0; }
+.card { transform-style: preserve-3d; }
+.card.face { animation: cardReveal 220ms ease-out both; }
+.card.matched { animation: matchPop 420ms cubic-bezier(.2, 1.4, .3, 1) both; }
+@keyframes floatGlow { from { transform: translate3d(0, 0, 0) scale(1); } to { transform: translate3d(18px, -22px, 0) scale(1.08); } }
+@keyframes cardReveal { from { transform: rotateY(10deg) scale(.96); opacity: .7; } to { transform: rotateY(0) scale(1); opacity: 1; } }
+@keyframes matchPop { 50% { transform: translateY(-5px) scale(1.04); } }
+@media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation-duration: .001ms !important; transition-duration: .001ms !important; } }
+
+@media (max-width: 900px) { .heroGrid { grid-template-columns: 1fr; } .deviceMock { min-height: auto; transform: none; } }
+@media (max-width: 700px) { .heroGrid { gap: 14px; } .deviceMock { border-radius: 32px; padding: 12px; } .mockTile { min-height: 86px; } .choiceGrid { grid-template-columns: 1fr; } .page { padding: 10px; } .top { flex-direction: column; } h1 { font-size: 27px; } .status { flex-direction: column; align-items: stretch; } .grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } .reviewHeader { grid-template-columns: 1fr; } .reviewGrid { grid-template-columns: 1fr; } .lobby { padding: 22px; } }
 `;
