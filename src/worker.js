@@ -60,10 +60,10 @@ function visibleState(game, youId) {
   };
 }
 
-function nextTurn(players, currentId) {
-  if (players.length < 2) return currentId;
+export function nextTurn(players, currentId) {
   const index = players.findIndex((player) => player.id === currentId);
   if (index < 0) return players[0]?.id || null;
+  if (players.length < 2) return players[0]?.id || null;
   return players[(index + 1) % players.length]?.id || null;
 }
 
