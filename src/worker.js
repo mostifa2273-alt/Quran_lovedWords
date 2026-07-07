@@ -1,4 +1,4 @@
-import { DATA, createCards, isCorrectPair } from "./game-data.js";
+import { DATA, createCards, isCorrectPair, normalizeGameOptions, selectGameItems } from "./game-data.js";
 
 const ROOM_CODE_PATTERN = /^[A-Z0-9]{5}$/;
 const TURN_DELAY_MS = 950;
@@ -7,10 +7,15 @@ function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-function newGame(roomCode) {
+function newGame(roomCode, options = {}) {
+  const settings = normalizeGameOptions(options);
+  const items = selectGameItems(settings);
+
   return {
     roomCode,
-    cards: createCards(DATA),
+    settings,
+    itemIds: items.map((item) => item.id),
+    cards: createCards(items),
     players: [],
     matchedPairs: [],
     flippedCards: [],
@@ -39,12 +44,13 @@ function visibleState(game, youId) {
     players: game.players,
     turnPlayerId: game.turnPlayerId,
     matchedCount: game.matchedPairs.length,
-    totalPairs: DATA.length,
+    totalPairs: game.itemIds?.length || game.settings?.pairCount || DATA.length,
     moves: game.moves,
     mistakes: game.mistakes,
     locked: game.locked,
     message: game.message,
-    finished: game.matchedPairs.length === DATA.length,
+    finished: game.matchedPairs.length === (game.itemIds?.length || game.settings?.pairCount || DATA.length),
+    settings: game.settings || normalizeGameOptions(),
     cards: game.cards.map((card) => {
       const visible = visibleCards.has(card.cardId) || matchedPairs.has(card.pairId);
       return {
@@ -123,13 +129,17 @@ export class GameRoom {
     const url = new URL(request.url);
     const roomCode = url.pathname.split("/").filter(Boolean)[1]?.toUpperCase();
     const name = sanitizeName(url.searchParams.get("name"));
+    const requestedOptions = normalizeGameOptions({
+      group: url.searchParams.get("group"),
+      pairCount: url.searchParams.get("pairCount")
+    });
 
     if (!roomCode || !ROOM_CODE_PATTERN.test(roomCode)) {
       return new Response("Invalid room code", { status: 400 });
     }
 
     if (!this.game || this.game.roomCode !== roomCode) {
-      this.game = newGame(roomCode);
+      this.game = newGame(roomCode, requestedOptions);
       await this.ctx.storage.put("game", this.game);
     }
 
@@ -205,7 +215,8 @@ export class GameRoom {
       return;
     }
 
-    if (this.game.matchedPairs.length === DATA.length) return;
+    const totalPairs = this.game.itemIds?.length || this.game.settings?.pairCount || DATA.length;
+    if (this.game.matchedPairs.length === totalPairs) return;
 
     const card = this.game.cards.find((candidate) => candidate.cardId === msg.cardId);
     if (!card) return;
@@ -238,7 +249,7 @@ export class GameRoom {
       this.game.locked = false;
       this.game.message = "درست بود. همان بازیکن دوباره بازی می‌کند.";
 
-      if (this.game.matchedPairs.length === DATA.length) {
+      if (this.game.matchedPairs.length === totalPairs) {
         const sorted = [...this.game.players].sort((a, b) => b.score - a.score);
         const winner = sorted[0];
         const runnerUp = sorted[1];
@@ -306,7 +317,8 @@ export class GameRoom {
   async restartGame(message) {
     const roomCode = this.game?.roomCode || "ROOM1";
     const existingPlayers = this.game?.players || [];
-    this.game = newGame(roomCode);
+    const settings = this.game?.settings || normalizeGameOptions();
+    this.game = newGame(roomCode, settings);
     this.game.players = existingPlayers.map((player, index) => ({
       ...player,
       score: 0,

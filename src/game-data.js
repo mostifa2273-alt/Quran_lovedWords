@@ -89,6 +89,26 @@ export function shuffle(items) {
   return arr;
 }
 
+export const GAME_GROUPS = ["all", "love", "dislike"];
+export const PAIR_COUNT_OPTIONS = [4, 6, 8, 10, 12, 16, 20, 24, 28];
+
+export function normalizeGameOptions(options = {}) {
+  const group = GAME_GROUPS.includes(options.group) ? options.group : "all";
+  const maxPairs = group === "all" ? DATA.length : DATA.filter((item) => item.group === group).length;
+  const requestedPairs = Number.parseInt(options.pairCount, 10);
+  const pairCount = Number.isFinite(requestedPairs)
+    ? Math.min(Math.max(requestedPairs, 2), maxPairs)
+    : maxPairs;
+
+  return { group, pairCount };
+}
+
+export function selectGameItems(options = {}) {
+  const normalized = normalizeGameOptions(options);
+  const base = normalized.group === "all" ? DATA : DATA.filter((item) => item.group === normalized.group);
+  return shuffle(base).slice(0, normalized.pairCount);
+}
+
 export function createCards(items = DATA) {
   return shuffle(
     items.flatMap((item) => [
@@ -115,6 +135,7 @@ export function isCorrectPair(a, b) {
 }
 
 export function groupLabel(group) {
+  if (group === "all") return "هر دو گروه";
   return group === "love" ? "خدا دوست دارد" : "خدا دوست ندارد";
 }
 

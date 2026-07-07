@@ -1,5 +1,5 @@
 import React, { useMemo, useRef, useState } from "react";
-import { DATA, groupLabel, groupSymbol } from "./game-data.js";
+import { DATA, PAIR_COUNT_OPTIONS, groupLabel, groupSymbol, normalizeGameOptions } from "./game-data.js";
 
 function randomRoomCode() {
   const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
@@ -41,6 +41,8 @@ export default function App() {
   const [state, setState] = useState(null);
   const [error, setError] = useState("");
   const [showReview, setShowReview] = useState(false);
+  const [gameGroup, setGameGroup] = useState("all");
+  const [pairCount, setPairCount] = useState(12);
 
   const you = useMemo(() => state?.players?.find((player) => player.id === youId) || null, [state, youId]);
 
@@ -52,6 +54,7 @@ export default function App() {
   function connect(roomCode) {
     const cleanName = (name.trim() || "بازیکن").slice(0, 24);
     const cleanRoom = cleanRoomCode(roomCode);
+    const options = normalizeGameOptions({ group: gameGroup, pairCount });
 
     if (!/^[A-Z0-9]{5}$/.test(cleanRoom)) {
       setError("کد اتاق باید ۵ حرف یا عدد انگلیسی باشد.");
@@ -62,7 +65,12 @@ export default function App() {
     setConnecting(true);
     setError("");
 
-    const ws = new WebSocket(`${websocketBase()}/ws/${cleanRoom}?name=${encodeURIComponent(cleanName)}`);
+    const params = new URLSearchParams({
+      name: cleanName,
+      group: options.group,
+      pairCount: String(options.pairCount)
+    });
+    const ws = new WebSocket(`${websocketBase()}/ws/${cleanRoom}?${params.toString()}`);
 
     ws.onopen = () => {
       setConnected(true);
@@ -174,6 +182,44 @@ export default function App() {
             />
           </label>
 
+          <section className="setupPanel" aria-label="تنظیمات بازی">
+            <div className="setupIntro">
+              <span>تنظیم تجربه بازی</span>
+              <b>{pairCount * 2} کارت • {groupLabel(gameGroup)}</b>
+            </div>
+
+            <div className="choiceGrid">
+              {[
+                { value: "all", title: "هر دو جبهه", text: "ترکیبی از دوست‌داشتنی‌ها و ناپسندها" },
+                { value: "love", title: "جبهه سبز", text: "فقط واژه‌هایی که خدا دوست دارد" },
+                { value: "dislike", title: "جبهه سرخ", text: "فقط واژه‌هایی که خدا دوست ندارد" }
+              ].map((option) => (
+                <button
+                  type="button"
+                  key={option.value}
+                  className={["choiceCard", gameGroup === option.value ? "selected" : ""].join(" ")}
+                  onClick={() => {
+                    setGameGroup(option.value);
+                    const normalized = normalizeGameOptions({ group: option.value, pairCount });
+                    setPairCount(normalized.pairCount);
+                  }}
+                >
+                  <strong>{option.title}</strong>
+                  <span>{option.text}</span>
+                </button>
+              ))}
+            </div>
+
+            <label className="rangeLabel">
+              تعداد جفت‌ها برای بازی
+              <select value={pairCount} onChange={(event) => setPairCount(Number(event.target.value))}>
+                {PAIR_COUNT_OPTIONS.filter((count) => count <= normalizeGameOptions({ group: gameGroup, pairCount: count }).pairCount).map((count) => (
+                  <option key={count} value={count}>{count} جفت / {count * 2} کارت</option>
+                ))}
+              </select>
+            </label>
+          </section>
+
           {error ? <div className="error">{error}</div> : null}
 
           <div className="lobbyActions">
@@ -262,6 +308,8 @@ export default function App() {
 
           <div className="miniStats">
             <span>۞ جفت‌ها: {state.matchedCount}/{state.totalPairs}</span>
+            <span>کارت‌ها: {state.totalPairs * 2}</span>
+            <span>جبهه: {groupLabel(state.settings?.group || "all")}</span>
             <span>✦ حرکت: {state.moves}</span>
             <span>هلال خطا: {state.mistakes}</span>
           </div>
@@ -373,7 +421,7 @@ const css = `
   --rose: #9f1239;
 }
 body { margin: 0; }
-button, input { font-family: inherit; }
+button, input, select { font-family: inherit; }
 button { -webkit-tap-highlight-color: transparent; }
 .page {
   min-height: 100vh;
@@ -450,7 +498,7 @@ p { color: var(--muted); line-height: 2; font-weight: 750; }
 .islamicDivider { display: flex; align-items: center; gap: 10px; color: var(--gold); margin: 12px 0 18px; }
 .islamicDivider span { height: 1px; flex: 1; background: linear-gradient(90deg, transparent, var(--gold), transparent); }
 label { display: grid; gap: 8px; margin-top: 13px; font-weight: 950; color: var(--emerald-dark); }
-input {
+input, select {
   width: 100%;
   border: 1px solid rgba(201,151,43,.38);
   border-radius: 20px;
@@ -462,8 +510,19 @@ input {
   color: var(--ink);
   box-shadow: inset 0 1px 0 rgba(255,255,255,.8);
 }
-input:focus { border-color: var(--gold); box-shadow: 0 0 0 4px rgba(201,151,43,.18); }
+input:focus, select:focus { border-color: var(--gold); box-shadow: 0 0 0 4px rgba(201,151,43,.18); }
+select { appearance: none; cursor: pointer; }
 .roomInput { text-align: center; letter-spacing: .2em; font-weight: 950; }
+.setupPanel { margin-top: 16px; display: grid; gap: 13px; padding: 16px; border-radius: 26px; background: linear-gradient(135deg, rgba(4,120,87,.10), rgba(247,231,177,.42)); border: 1px solid rgba(201,151,43,.34); }
+.setupIntro { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; color: var(--muted); font-weight: 900; }
+.setupIntro b { color: var(--emerald-dark); }
+.choiceGrid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 9px; }
+.choiceCard { text-align: right; display: grid; gap: 5px; background: rgba(255,255,255,.70); color: var(--ink); border: 1px solid rgba(201,151,43,.28); border-radius: 20px; padding: 13px; }
+.choiceCard strong { color: var(--emerald-dark); font-size: 14px; }
+.choiceCard span { color: var(--muted); font-size: 12px; line-height: 1.7; }
+.choiceCard.selected { background: linear-gradient(135deg, #063f34, #0f766e); border-color: rgba(247,231,177,.7); box-shadow: 0 14px 32px rgba(4,120,87,.22); }
+.choiceCard.selected strong, .choiceCard.selected span { color: #fff8e7; }
+.rangeLabel { margin-top: 0; }
 .lobbyActions, .topActions { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 16px; }
 button { border: 0; border-radius: 18px; padding: 12px 16px; cursor: pointer; font-weight: 950; transition: transform 150ms ease, box-shadow 150ms ease; }
 button:hover:not(:disabled) { transform: translateY(-1px); }
@@ -526,5 +585,5 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 .reviewCard.dislike .reviewTop b { background: #fee2e2; color: #dc2626; }
 .reviewArabic { direction: rtl; text-align: center; font-size: 23px; line-height: 2; font-weight: 950; color: var(--emerald-dark); padding: 10px; border-radius: 18px; background: rgba(255,248,231,.72); border: 1px solid rgba(201,151,43,.18); }
 .reviewPersian { margin-top: 10px; color: #475569; font-size: 14px; line-height: 1.9; font-weight: 850; text-align: center; }
-@media (max-width: 700px) { .page { padding: 10px; } .top { flex-direction: column; } h1 { font-size: 27px; } .status { flex-direction: column; align-items: stretch; } .grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } .reviewHeader { grid-template-columns: 1fr; } .reviewGrid { grid-template-columns: 1fr; } .lobby { padding: 22px; } }
+@media (max-width: 700px) { .choiceGrid { grid-template-columns: 1fr; } .page { padding: 10px; } .top { flex-direction: column; } h1 { font-size: 27px; } .status { flex-direction: column; align-items: stretch; } .grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } .reviewHeader { grid-template-columns: 1fr; } .reviewGrid { grid-template-columns: 1fr; } .lobby { padding: 22px; } }
 `;
