@@ -1,7 +1,8 @@
 import { DATA, createCards, isCorrectPair } from "./game-data.js";
 
-const ROOM_CODE_PATTERN = /^[A-Z0-9]{5}$/;
-const TURN_DELAY_MS = 950;
+export const ROOM_CODE_PATTERN = /^[A-Z0-9]{5}$/;
+export const TURN_DELAY_MS = 950;
+const MAX_PLAYERS = 2;
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -15,18 +16,37 @@ function newGame(roomCode) {
     matchedPairs: [],
     flippedCards: [],
     locked: false,
+    started: false,
     turnPlayerId: null,
+    hostId: null,
     moves: 0,
     mistakes: 0,
-    message: "بازی آماده است. بازیکن اول شروع می‌کند.",
+    message: "اتاق آماده است. هر دو بازیکن باید آماده شوند و میزبان بازی را شروع کند.",
     createdAt: Date.now(),
     updatedAt: Date.now()
   };
 }
 
-function sanitizeName(value) {
+export function sanitizeName(value) {
   const name = String(value || "").trim().slice(0, 24);
   return name || "بازیکن";
+}
+
+export function sanitizeClientId(value) {
+  const id = String(value || "").trim();
+  return /^[a-zA-Z0-9_-]{12,80}$/.test(id) ? id : crypto.randomUUID();
+}
+
+function publicPlayer(player) {
+  return {
+    id: player.id,
+    name: player.name,
+    score: player.score,
+    number: player.number,
+    ready: Boolean(player.ready),
+    online: Boolean(player.online),
+    host: Boolean(player.host)
+  };
 }
 
 function visibleState(game, youId) {
@@ -36,7 +56,10 @@ function visibleState(game, youId) {
   return {
     roomCode: game.roomCode,
     youId,
-    players: game.players,
+    players: game.players.map(publicPlayer),
+    hostId: game.hostId,
+    started: Boolean(game.started),
+    canStart: game.players.length === MAX_PLAYERS && game.players.every((player) => player.ready),
     turnPlayerId: game.turnPlayerId,
     matchedCount: game.matchedPairs.length,
     totalPairs: DATA.length,
@@ -61,10 +84,12 @@ function visibleState(game, youId) {
 }
 
 function nextTurn(players, currentId) {
-  if (players.length < 2) return currentId;
-  const index = players.findIndex((player) => player.id === currentId);
-  if (index < 0) return players[0]?.id || null;
-  return players[(index + 1) % players.length]?.id || null;
+  const activePlayers = players.filter((player) => player.online);
+  const roster = activePlayers.length >= 2 ? activePlayers : players;
+  if (roster.length < 2) return currentId;
+  const index = roster.findIndex((player) => player.id === currentId);
+  if (index < 0) return roster[0]?.id || null;
+  return roster[(index + 1) % roster.length]?.id || null;
 }
 
 function safeSend(ws, payload) {
@@ -73,6 +98,15 @@ function safeSend(ws, payload) {
   } catch {
     // Ignore a broken socket.
   }
+}
+
+function reseatPlayers(game) {
+  game.players = game.players.map((player, index) => ({
+    ...player,
+    number: index + 1,
+    host: index === 0
+  }));
+  game.hostId = game.players[0]?.id || null;
 }
 
 export default {
@@ -123,6 +157,7 @@ export class GameRoom {
     const url = new URL(request.url);
     const roomCode = url.pathname.split("/").filter(Boolean)[1]?.toUpperCase();
     const name = sanitizeName(url.searchParams.get("name"));
+    const clientId = sanitizeClientId(url.searchParams.get("clientId"));
 
     if (!roomCode || !ROOM_CODE_PATTERN.test(roomCode)) {
       return new Response("Invalid room code", { status: 400 });
@@ -136,33 +171,39 @@ export class GameRoom {
     const pair = new WebSocketPair();
     const [client, server] = Object.values(pair);
 
-    const playerId = crypto.randomUUID();
-    const openPlayerSlots = Math.max(0, 2 - this.game.players.length);
-    const role = openPlayerSlots > 0 ? "player" : "spectator";
-    const playerNumber = this.game.players.length + 1;
+    const existing = this.game.players.find((player) => player.clientId === clientId);
+    const role = existing ? "player" : this.game.players.length < MAX_PLAYERS ? "player" : "spectator";
+    const playerId = existing?.id || clientId;
 
-    const meta = { playerId, name, role };
+    const meta = { playerId, clientId, name, role };
     server.serializeAttachment(meta);
     this.ctx.acceptWebSocket(server);
     this.sessions.set(server, meta);
 
     if (role === "player") {
-      this.game.players.push({
-        id: playerId,
-        name,
-        score: 0,
-        number: playerNumber
-      });
-
-      if (!this.game.turnPlayerId) {
-        this.game.turnPlayerId = playerId;
+      if (existing) {
+        existing.name = name;
+        existing.online = true;
+      } else {
+        this.game.players.push({
+          id: playerId,
+          clientId,
+          name,
+          score: 0,
+          number: this.game.players.length + 1,
+          ready: false,
+          online: true,
+          host: this.game.players.length === 0
+        });
       }
 
-      this.game.message =
-        this.game.players.length === 1
-          ? "اتاق ساخته شد. کد اتاق را برای بازیکن دوم بفرست."
-          : "دو بازیکن وصل شدند. بازی شروع شد.";
-
+      reseatPlayers(this.game);
+      if (!this.game.turnPlayerId) this.game.turnPlayerId = this.game.players[0]?.id || null;
+      this.game.message = existing
+        ? `${name} دوباره وصل شد.`
+        : this.game.players.length === 1
+          ? "اتاق ساخته شد. لینک یا کد اتاق را برای بازیکن دوم بفرست."
+          : "دو بازیکن در اتاق هستند. آماده شوید تا میزبان شروع کند.";
       await this.save();
     }
 
@@ -170,6 +211,7 @@ export class GameRoom {
       type: "welcome",
       playerId,
       role,
+      clientId,
       state: visibleState(this.game, playerId)
     });
 
@@ -188,15 +230,46 @@ export class GameRoom {
 
     const meta = this.sessions.get(ws) || ws.deserializeAttachment();
     if (!meta?.playerId || !this.game) return;
+    const player = this.game.players.find((candidate) => candidate.id === meta.playerId);
+    const isHost = this.game.hostId === meta.playerId;
+
+    if (msg.type === "ready") {
+      if (meta.role !== "player" || !player || this.game.started) return;
+      player.ready = Boolean(msg.ready);
+      this.game.message = player.ready ? `${player.name} آماده است.` : `${player.name} هنوز آماده نیست.`;
+      await this.saveAndBroadcast();
+      return;
+    }
+
+    if (msg.type === "start") {
+      if (!isHost) return;
+      if (this.game.players.length < MAX_PLAYERS) {
+        safeSend(ws, { type: "notice", message: "برای شروع به دو بازیکن نیاز است." });
+        return;
+      }
+      if (!this.game.players.every((candidate) => candidate.ready)) {
+        safeSend(ws, { type: "notice", message: "هر دو بازیکن باید آماده باشند." });
+        return;
+      }
+      this.game.started = true;
+      this.game.turnPlayerId = this.game.players[0]?.id || null;
+      this.game.message = "بازی شروع شد. بازیکن میزبان شروع می‌کند.";
+      await this.saveAndBroadcast();
+      return;
+    }
 
     if (msg.type === "restart") {
-      if (meta.role !== "player") return;
-      await this.restartGame("بازی از نو شروع شد.");
+      if (!isHost) return;
+      await this.restartGame("بازی از نو آماده شد. هر دو بازیکن دوباره آماده شوند.");
       return;
     }
 
     if (msg.type !== "select") return;
     if (meta.role !== "player") return;
+    if (!this.game.started) {
+      safeSend(ws, { type: "notice", message: "بازی هنوز شروع نشده است." });
+      return;
+    }
 
     if (this.game.locked) return;
 
@@ -231,8 +304,8 @@ export class GameRoom {
 
     if (matched) {
       this.game.matchedPairs.push(first.pairId);
-      this.game.players = this.game.players.map((player) =>
-        player.id === meta.playerId ? { ...player, score: player.score + 1 } : player
+      this.game.players = this.game.players.map((candidate) =>
+        candidate.id === meta.playerId ? { ...candidate, score: candidate.score + 1 } : candidate
       );
       this.game.flippedCards = [];
       this.game.locked = false;
@@ -255,13 +328,12 @@ export class GameRoom {
     this.game.mistakes += 1;
     this.game.message =
       first?.side === second?.side
-        ? "هر دو کارت از یک زبان بودند. نوبت عوض می‌شود."
+        ? "هر دو کارت از یک زبان بودند. این انتخاب مجاز است اما خطا حساب شد و نوبت عوض می‌شود."
         : "این دو کارت جفت نبودند. نوبت عوض می‌شود.";
 
     await this.saveAndBroadcast();
     await sleep(TURN_DELAY_MS);
 
-    // Another event may have restarted the game while we were waiting.
     if (!this.game.locked) return;
 
     this.game.flippedCards = [];
@@ -272,35 +344,33 @@ export class GameRoom {
   }
 
   async webSocketClose(ws) {
-    await this.removeSession(ws);
+    await this.markOffline(ws);
   }
 
   async webSocketError(ws) {
-    await this.removeSession(ws);
+    await this.markOffline(ws);
   }
 
-  async removeSession(ws) {
+  async markOffline(ws) {
     const meta = this.sessions.get(ws) || ws.deserializeAttachment();
     this.sessions.delete(ws);
 
-    if (!meta || !this.game) return;
+    if (!meta || !this.game || meta.role !== "player") return;
 
-    if (meta.role === "player") {
-      this.game.players = this.game.players.filter((player) => player.id !== meta.playerId);
+    const stillConnected = [...this.sessions.values()].some((session) => session.playerId === meta.playerId);
+    if (stillConnected) return;
 
-      if (this.game.turnPlayerId === meta.playerId) {
-        this.game.turnPlayerId = this.game.players[0]?.id || null;
-      }
+    const player = this.game.players.find((candidate) => candidate.id === meta.playerId);
+    if (!player) return;
 
-      if (this.game.players.length === 0) {
-        // Keep the shuffled board for a while, but reset seats for the next visitors.
-        this.game.message = "همه بازیکنان خارج شدند.";
-      } else {
-        this.game.message = "یک بازیکن خارج شد. بازیکن دیگری می‌تواند با همین کد وارد شود.";
-      }
-
-      await this.saveAndBroadcast();
+    player.online = false;
+    player.ready = false;
+    if (!this.game.started) {
+      this.game.message = `${player.name} آفلاین شد. با همان دستگاه می‌تواند دوباره وصل شود.`;
+    } else {
+      this.game.message = `${player.name} آفلاین شد. منتظر اتصال دوباره بمانید.`;
     }
+    await this.saveAndBroadcast();
   }
 
   async restartGame(message) {
@@ -310,8 +380,11 @@ export class GameRoom {
     this.game.players = existingPlayers.map((player, index) => ({
       ...player,
       score: 0,
-      number: index + 1
+      number: index + 1,
+      ready: false,
+      host: index === 0
     }));
+    this.game.hostId = this.game.players[0]?.id || null;
     this.game.turnPlayerId = this.game.players[0]?.id || null;
     this.game.message = message;
     await this.saveAndBroadcast();

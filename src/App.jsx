@@ -1,4 +1,4 @@
-import React, { useMemo, useRef, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { DATA, groupLabel, groupSymbol } from "./game-data.js";
 
 function randomRoomCode() {
@@ -8,6 +8,22 @@ function randomRoomCode() {
     code += chars[Math.floor(Math.random() * chars.length)];
   }
   return code;
+}
+
+function getClientId() {
+  const key = "quran-memory-client-id";
+  let id = window.localStorage.getItem(key);
+  if (!id) {
+    id = crypto.randomUUID();
+    window.localStorage.setItem(key, id);
+  }
+  return id;
+}
+
+function roomLink(code) {
+  const url = new URL(window.location.href);
+  url.searchParams.set("room", code);
+  return url.toString();
 }
 
 function websocketBase() {
@@ -41,6 +57,12 @@ export default function App() {
   const [state, setState] = useState(null);
   const [error, setError] = useState("");
   const [showReview, setShowReview] = useState(false);
+  const [copied, setCopied] = useState("");
+
+  useEffect(() => {
+    const code = cleanRoomCode(new URLSearchParams(window.location.search).get("room"));
+    if (code) setRoomInput(code);
+  }, []);
 
   const you = useMemo(() => state?.players?.find((player) => player.id === youId) || null, [state, youId]);
 
@@ -62,7 +84,8 @@ export default function App() {
     setConnecting(true);
     setError("");
 
-    const ws = new WebSocket(`${websocketBase()}/ws/${cleanRoom}?name=${encodeURIComponent(cleanName)}`);
+    const params = new URLSearchParams({ name: cleanName, clientId: getClientId() });
+    const ws = new WebSocket(`${websocketBase()}/ws/${cleanRoom}?${params.toString()}`);
 
     ws.onopen = () => {
       setConnected(true);
@@ -81,6 +104,8 @@ export default function App() {
       if (message.type === "welcome") {
         setYouId(message.playerId);
         setRole(message.role);
+        if (message.clientId) window.localStorage.setItem("quran-memory-client-id", message.clientId);
+        window.history.replaceState({}, "", `?room=${message.state.roomCode}`);
         setState(message.state);
         return;
       }
@@ -131,6 +156,29 @@ export default function App() {
     send({ type: "restart" });
   }
 
+  function setReady(ready) {
+    send({ type: "ready", ready });
+  }
+
+  function startGame() {
+    send({ type: "start" });
+  }
+
+  async function copyText(text, label) {
+    await navigator.clipboard?.writeText(text);
+    setCopied(label);
+    setTimeout(() => setCopied(""), 1600);
+  }
+
+  async function shareRoom() {
+    const link = roomLink(state.roomCode);
+    if (navigator.share) {
+      await navigator.share({ title: "بازی حافظه قرآنی", text: `کد اتاق: ${state.roomCode}`, url: link });
+    } else {
+      await copyText(link, "لینک کپی شد");
+    }
+  }
+
   function leaveRoom() {
     wsRef.current?.close();
     wsRef.current = null;
@@ -140,6 +188,7 @@ export default function App() {
     setYouId(null);
     setState(null);
     setError("");
+    window.history.replaceState({}, "", window.location.pathname);
   }
 
   if (!connected || !state) {
@@ -213,8 +262,11 @@ export default function App() {
             <button className="reviewButton" onClick={() => setShowReview((value) => !value)}>
               {showReview ? "بازگشت به بازی" : "مرور واژه‌ها"}
             </button>
-            <button className="secondary" onClick={restart} disabled={role !== "player"}>
-              شروع دوباره
+            <button className="secondary" onClick={() => copyText(state.roomCode, "کد کپی شد")}>کپی کد</button>
+            <button className="secondary" onClick={() => copyText(roomLink(state.roomCode), "لینک کپی شد")}>کپی لینک</button>
+            <button className="primary" onClick={shareRoom}>اشتراک</button>
+            <button className="secondary" onClick={restart} disabled={youId !== state.hostId}>
+              آماده‌سازی دوباره
             </button>
             <button className="danger" onClick={leaveRoom}>
               خروج
@@ -230,7 +282,9 @@ export default function App() {
             >
               <div>
                 <b>{player.name}</b>
-                <span>{player.id === youId ? "تو" : `بازیکن ${player.number}`}</span>
+                <span>{player.id === youId ? "تو" : `بازیکن ${player.number}`} {player.host ? " • میزبان" : ""}</span>
+                <em className={player.online ? "online" : "offline"}>{player.online ? "آنلاین" : "آفلاین"}</em>
+                <em className={player.ready ? "ready" : "notReady"}>{player.ready ? "آماده" : "آماده نیست"}</em>
               </div>
               <strong>{player.score}</strong>
             </article>
@@ -239,7 +293,7 @@ export default function App() {
           {state.players.length < 2 ? (
             <article className="waiting">
               <b>منتظر بازیکن دوم</b>
-              <span>کد اتاق را بفرست: {state.roomCode}</span>
+              <span>کد یا لینک اتاق را بفرست: {state.roomCode}</span>
             </article>
           ) : null}
 
@@ -265,6 +319,24 @@ export default function App() {
         </section>
 
         {error ? <div className="error">{error}</div> : null}
+        {copied ? <div className="toast">{copied}</div> : null}
+
+        {!state.started && !finished ? (
+          <section className="roomControls">
+            <div>
+              <b>آماده‌سازی اتاق</b>
+              <span>لینک مستقیم: <code dir="ltr">?room={state.roomCode}</code></span>
+            </div>
+            {role === "player" ? (
+              <button className={you?.ready ? "secondary" : "primary"} onClick={() => setReady(!you?.ready)}>
+                {you?.ready ? "لغو آمادگی" : "من آماده‌ام"}
+              </button>
+            ) : null}
+            <button className="primary" onClick={startGame} disabled={youId !== state.hostId || !state.canStart}>
+              شروع بازی (فقط میزبان)
+            </button>
+          </section>
+        ) : null}
 
         {showReview ? (
           <ReviewPanel />
@@ -272,7 +344,7 @@ export default function App() {
           <section className="grid">
             {state.cards.map((card) => {
               const isLove = card.group === "love";
-              const disabled = role !== "player" || !isYourTurn || state.locked || card.matched || finished;
+              const disabled = role !== "player" || !state.started || !isYourTurn || state.locked || card.matched || finished;
 
               return (
                 <button
@@ -456,6 +528,14 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 .player div, .waiting { display: grid; gap: 3px; }
 .player b, .waiting b { font-weight: 950; }
 .player span, .waiting span { color: #64748b; font-size: 13px; font-weight: 800; }
+.player em { display: inline-flex; width: max-content; border-radius: 999px; padding: 3px 8px; font-size: 11px; font-style: normal; font-weight: 950; }
+.online, .ready { background: #dcfce7; color: #166534; }
+.offline, .notReady { background: #fee2e2; color: #991b1b; }
+.toast { background: #ecfdf5; border: 1px solid #bbf7d0; color: #166534; border-radius: 18px; padding: 11px 13px; font-weight: 950; }
+.roomControls { background: #fff7ed; border: 1px solid #fed7aa; border-radius: 24px; padding: 14px; display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+.roomControls div { display: grid; gap: 4px; }
+.roomControls b { font-weight: 950; }
+.roomControls span { color: #9a3412; font-size: 13px; font-weight: 850; }
 .player strong {
   width: 42px;
   height: 42px;
@@ -571,7 +651,10 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 .reviewPersian { margin-top: 10px; color: #475569; font-size: 14px; line-height: 1.9; font-weight: 850; text-align: center; }
 @media (max-width: 700px) {
   .page { padding: 10px; }
+  .lobby, .top, .reviewPanel { border-radius: 22px; padding: 14px; }
   .top { flex-direction: column; }
+  .topActions, .lobbyActions, .roomControls { display: grid; grid-template-columns: 1fr 1fr; width: 100%; }
+  .topActions button, .lobbyActions button, .roomControls button { width: 100%; }
   h1 { font-size: 26px; }
   .status { flex-direction: column; align-items: stretch; }
   .grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
