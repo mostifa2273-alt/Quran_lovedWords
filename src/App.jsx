@@ -1,4 +1,4 @@
-import React, { useMemo, useRef, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { DATA, groupLabel, groupSymbol } from "./game-data.js";
 
 function randomRoomCode() {
@@ -22,6 +22,22 @@ function cleanRoomCode(value) {
     .slice(0, 5);
 }
 
+function getIdentity() {
+  const key = "quran-memory-player-id";
+  let value = window.localStorage.getItem(key);
+  if (!value) {
+    value = crypto.randomUUID();
+    window.localStorage.setItem(key, value);
+  }
+  return value;
+}
+
+function roomLink(roomCode) {
+  const url = new URL(window.location.href);
+  url.searchParams.set("room", roomCode);
+  return url.toString();
+}
+
 function winnerText(players) {
   if (!players?.length) return "";
   const sorted = [...players].sort((a, b) => b.score - a.score);
@@ -41,8 +57,16 @@ export default function App() {
   const [state, setState] = useState(null);
   const [error, setError] = useState("");
   const [showReview, setShowReview] = useState(false);
+  const [copyMessage, setCopyMessage] = useState("");
 
   const you = useMemo(() => state?.players?.find((player) => player.id === youId) || null, [state, youId]);
+  const isHost = state?.hostId === youId;
+  const shareUrl = state?.roomCode ? roomLink(state.roomCode) : "";
+
+  useEffect(() => {
+    const initialRoom = cleanRoomCode(new URLSearchParams(window.location.search).get("room"));
+    if (initialRoom) setRoomInput(initialRoom);
+  }, []);
 
   const currentTurnName = useMemo(() => {
     const player = state?.players?.find((item) => item.id === state.turnPlayerId);
@@ -62,7 +86,8 @@ export default function App() {
     setConnecting(true);
     setError("");
 
-    const ws = new WebSocket(`${websocketBase()}/ws/${cleanRoom}?name=${encodeURIComponent(cleanName)}`);
+    const identity = getIdentity();
+    const ws = new WebSocket(`${websocketBase()}/ws/${cleanRoom}?name=${encodeURIComponent(cleanName)}&identity=${encodeURIComponent(identity)}`);
 
     ws.onopen = () => {
       setConnected(true);
@@ -80,6 +105,7 @@ export default function App() {
 
       if (message.type === "welcome") {
         setYouId(message.playerId);
+        if (message.identity) window.localStorage.setItem("quran-memory-player-id", message.identity);
         setRole(message.role);
         setState(message.state);
         return;
@@ -111,11 +137,14 @@ export default function App() {
   function createRoom() {
     const code = randomRoomCode();
     setRoomInput(code);
+    window.history.replaceState(null, "", `?room=${code}`);
     connect(code);
   }
 
   function joinRoom() {
-    connect(roomInput);
+    const code = cleanRoomCode(roomInput);
+    if (code) window.history.replaceState(null, "", `?room=${code}`);
+    connect(code);
   }
 
   function send(payload) {
@@ -129,6 +158,31 @@ export default function App() {
 
   function restart() {
     send({ type: "restart" });
+  }
+
+  function setReady(ready) {
+    send({ type: "ready", ready });
+  }
+
+  function startGame() {
+    send({ type: "start" });
+  }
+
+  async function copyText(value, label) {
+    try {
+      await navigator.clipboard.writeText(value);
+      setCopyMessage(`${label} کپی شد.`);
+    } catch {
+      setCopyMessage("کپی خودکار ممکن نشد؛ متن را دستی کپی کن.");
+    }
+  }
+
+  async function shareRoom() {
+    if (navigator.share) {
+      await navigator.share({ title: "بازی حافظه قرآنی", text: `به اتاق ${state.roomCode} بیا`, url: shareUrl });
+      return;
+    }
+    await copyText(shareUrl, "لینک اتاق");
   }
 
   function leaveRoom() {
@@ -151,7 +205,7 @@ export default function App() {
           <h1>بازی حافظه ۲ نفره آنلاین</h1>
           <p>
             یک نفر اتاق می‌سازد و کد ۵ حرفی را برای نفر دوم می‌فرستد. اگر جفت درست پیدا کنی، امتیاز می‌گیری
-            و نوبتت ادامه دارد؛ اگر اشتباه باشد، نوبت عوض می‌شود.
+            و نوبتت ادامه دارد؛ اگر اشتباه باشد، نوبت عوض می‌شود. لینک‌های دارای ?room=ABCDE مستقیم وارد اتاق می‌شوند.
           </p>
 
           <label>
@@ -171,7 +225,8 @@ export default function App() {
             />
           </label>
 
-          {error ? <div className="error">{error}</div> : null}
+          {copyMessage ? <div className="success">{copyMessage}</div> : null}
+        {error ? <div className="error">{error}</div> : null}
 
           <div className="lobbyActions">
             <button onClick={createRoom} className="primary" disabled={connecting}>
@@ -202,7 +257,7 @@ export default function App() {
       <div className="shell">
         <header className="top">
           <div>
-            <div className="badge">اتاق {state.roomCode}</div>
+            <div className="badge">اتاق {state.roomCode} {isHost ? " · میزبان" : ""}</div>
             <h1>بازی حافظه قرآنی آنلاین</h1>
             <p>
               سبز یعنی «خدا دوست دارد». قرمز یعنی «خدا دوست ندارد». جفت درست فقط عربی + فارسیِ همان معناست.
@@ -213,7 +268,9 @@ export default function App() {
             <button className="reviewButton" onClick={() => setShowReview((value) => !value)}>
               {showReview ? "بازگشت به بازی" : "مرور واژه‌ها"}
             </button>
-            <button className="secondary" onClick={restart} disabled={role !== "player"}>
+            <button className="secondary" onClick={() => copyText(state.roomCode, "کد اتاق")}>کپی کد</button>
+            <button className="secondary" onClick={shareRoom}>اشتراک لینک</button>
+            <button className="secondary" onClick={restart} disabled={!isHost}>
               شروع دوباره
             </button>
             <button className="danger" onClick={leaveRoom}>
@@ -230,7 +287,9 @@ export default function App() {
             >
               <div>
                 <b>{player.name}</b>
-                <span>{player.id === youId ? "تو" : `بازیکن ${player.number}`}</span>
+                <span>{player.id === youId ? "تو" : `بازیکن ${player.number}`} {player.id === state.hostId ? " · میزبان" : ""}</span>
+                <em className={player.online ? "online" : "offline"}>{player.online ? "آنلاین" : "آفلاین"}</em>
+                <em className={player.ready ? "ready" : "notReady"}>{player.ready ? "آماده" : "آماده نیست"}</em>
               </div>
               <strong>{player.score}</strong>
             </article>
@@ -239,7 +298,7 @@ export default function App() {
           {state.players.length < 2 ? (
             <article className="waiting">
               <b>منتظر بازیکن دوم</b>
-              <span>کد اتاق را بفرست: {state.roomCode}</span>
+              <span>کد یا لینک اتاق را بفرست: {state.roomCode}</span>
             </article>
           ) : null}
 
@@ -264,7 +323,18 @@ export default function App() {
           </div>
         </section>
 
+        {copyMessage ? <div className="success">{copyMessage}</div> : null}
         {error ? <div className="error">{error}</div> : null}
+
+        {!state.started && role === "player" ? (
+          <section className="roomControls">
+            <button className={you?.ready ? "secondary" : "primary"} onClick={() => setReady(!you?.ready)}>
+              {you?.ready ? "لغو آمادگی" : "من آماده‌ام"}
+            </button>
+            <button className="primary" onClick={startGame} disabled={!isHost || !state.canStart}>شروع بازی توسط میزبان</button>
+            <span>{isHost ? "وقتی هر دو آماده باشند می‌توانی شروع کنی." : "منتظر شروع بازی توسط میزبان باشید."}</span>
+          </section>
+        ) : null}
 
         {showReview ? (
           <ReviewPanel />
@@ -272,7 +342,7 @@ export default function App() {
           <section className="grid">
             {state.cards.map((card) => {
               const isLove = card.group === "love";
-              const disabled = role !== "player" || !isYourTurn || state.locked || card.matched || finished;
+              const disabled = role !== "player" || !state.started || !isYourTurn || state.locked || card.matched || finished;
 
               return (
                 <button
@@ -417,6 +487,16 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 .danger { background: #fee2e2; color: #991b1b; border: 1px solid #fecaca; }
 .reviewButton, .reviewToggle { background: #f59e0b; color: #111827; border: 0; }
 .reviewToggle { margin-top: 14px; width: 100%; }
+.success {
+  margin-top: 12px;
+  background: #ecfdf5;
+  border: 1px solid #bbf7d0;
+  color: #047857;
+  border-radius: 18px;
+  padding: 11px 13px;
+  font-weight: 900;
+  line-height: 1.8;
+}
 .error {
   margin-top: 12px;
   background: #fff1f2;
@@ -456,6 +536,9 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 .player div, .waiting { display: grid; gap: 3px; }
 .player b, .waiting b { font-weight: 950; }
 .player span, .waiting span { color: #64748b; font-size: 13px; font-weight: 800; }
+.player em { font-style: normal; width: fit-content; border-radius: 999px; padding: 3px 8px; font-size: 11px; font-weight: 950; }
+.online, .ready { background: #dcfce7; color: #166534; }
+.offline, .notReady { background: #fee2e2; color: #991b1b; }
 .player strong {
   width: 42px;
   height: 42px;
@@ -465,6 +548,18 @@ button:disabled { cursor: not-allowed; opacity: .55; }
   color: white;
   border-radius: 16px;
   font-size: 20px;
+}
+.roomControls {
+  background: rgba(255,255,255,.92);
+  border: 1px solid #e2e8f0;
+  border-radius: 24px;
+  padding: 14px;
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  flex-wrap: wrap;
+  font-weight: 900;
+  color: #475569;
 }
 .status {
   background: #020617;
@@ -573,8 +668,21 @@ button:disabled { cursor: not-allowed; opacity: .55; }
   .page { padding: 10px; }
   .top { flex-direction: column; }
   h1 { font-size: 26px; }
-  .status { flex-direction: column; align-items: stretch; }
-  .grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .roomControls {
+  background: rgba(255,255,255,.92);
+  border: 1px solid #e2e8f0;
+  border-radius: 24px;
+  padding: 14px;
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  flex-wrap: wrap;
+  font-weight: 900;
+  color: #475569;
+}
+.status { flex-direction: column; align-items: stretch; }
+  .grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+  .card { min-height: 96px; border-radius: 18px; }
   .reviewHeader { grid-template-columns: 1fr; }
   .reviewGrid { grid-template-columns: 1fr; }
 }
