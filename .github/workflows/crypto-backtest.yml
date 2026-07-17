@@ -1,0 +1,31 @@
+name: BTC regime backtest
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [crypto-research-runner]
+    paths:
+      - "research/crypto/**"
+      - ".github/workflows/crypto-backtest.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  backtest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - run: pip install -r research/crypto/requirements.txt
+      - name: Run research pipeline
+        run: python research/crypto/backtest.py
+      - uses: actions/upload-artifact@v4
+        with:
+          name: btc-backtest-results
+          path: results/
+          if-no-files-found: error
