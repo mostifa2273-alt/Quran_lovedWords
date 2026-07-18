@@ -27,26 +27,26 @@ jobs:
           cache: pip
           cache-dependency-path: research/crypto/requirements.txt
       - run: pip install -r research/crypto/requirements.txt
-      - name: Run research pipeline
-        run: python research/crypto/run_fixed.py
+      - name: Run fixed multi-expert pipeline
+        run: python research/crypto/backtest_v3.py
       - name: Verify and publish metrics
         run: |
           set -euo pipefail
-          test -s research/crypto/results_v2/summary_v2.json
-          test -s research/crypto/results_v2/test_metrics.csv
-          echo '## BTC backtest v2' >> "$GITHUB_STEP_SUMMARY"
+          test -s research/crypto/results_v3/summary_v3.json
+          test -s research/crypto/results_v3/metrics_v3.csv
+          echo '## BTC backtest v3 — fixed multi-expert ensemble' >> "$GITHUB_STEP_SUMMARY"
           echo '```json' >> "$GITHUB_STEP_SUMMARY"
-          cat research/crypto/results_v2/summary_v2.json >> "$GITHUB_STEP_SUMMARY"
+          cat research/crypto/results_v3/summary_v3.json >> "$GITHUB_STEP_SUMMARY"
           echo '```' >> "$GITHUB_STEP_SUMMARY"
-          echo '--- SUMMARY_V2_JSON ---'
-          cat research/crypto/results_v2/summary_v2.json
-          echo '--- TEST_METRICS_CSV ---'
-          cat research/crypto/results_v2/test_metrics.csv
+          echo '--- SUMMARY_V3_JSON ---'
+          cat research/crypto/results_v3/summary_v3.json
+          echo '--- METRICS_V3_CSV ---'
+          cat research/crypto/results_v3/metrics_v3.csv
           echo '--- RESULT_FILES ---'
-          find research/crypto/results_v2 -maxdepth 1 -type f -printf '%f %s bytes\n' | sort
+          find research/crypto/results_v3 -maxdepth 1 -type f -printf '%f %s bytes\n' | sort
       - uses: actions/upload-artifact@v4
         with:
-          name: btc-backtest-results-v2
-          path: research/crypto/results_v2/**
+          name: btc-backtest-results-v3
+          path: research/crypto/results_v3/**
           if-no-files-found: error
           retention-days: 30
