@@ -18,7 +18,7 @@ permissions:
 jobs:
   backtest:
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -31,32 +31,30 @@ jobs:
         run: python research/crypto/backtest_v3.py
       - name: Audit execution and accounting
         run: python research/crypto/audit_v3.py
+      - name: Run hourly leveraged-setup validation
+        run: python research/crypto/backtest_hourly_setup.py
       - name: Verify and publish metrics
         run: |
           set -euo pipefail
           test -s research/crypto/results_v3/summary_v3.json
-          test -s research/crypto/results_v3/metrics_v3.csv
           test -s research/crypto/results_v3/audit_v3.json
-          test -s research/crypto/results_v3/audit_yearly.csv
-          echo '## BTC backtest v3 — fixed multi-expert ensemble' >> "$GITHUB_STEP_SUMMARY"
+          test -s research/crypto/results_hourly_setup/summary_hourly_setup.json
+          test -s research/crypto/results_hourly_setup/metrics_hourly_setup.csv
+          echo '## Hourly BTC breakout setup — unleveraged validation' >> "$GITHUB_STEP_SUMMARY"
+          echo 'Tests BTC/USDT and BTC/EUR, cost stress, and optional BTC-vs-ETH relative-strength filter.' >> "$GITHUB_STEP_SUMMARY"
           echo '```json' >> "$GITHUB_STEP_SUMMARY"
-          cat research/crypto/results_v3/summary_v3.json >> "$GITHUB_STEP_SUMMARY"
+          cat research/crypto/results_hourly_setup/summary_hourly_setup.json >> "$GITHUB_STEP_SUMMARY"
           echo '```' >> "$GITHUB_STEP_SUMMARY"
-          echo '## Execution audit' >> "$GITHUB_STEP_SUMMARY"
-          echo '```json' >> "$GITHUB_STEP_SUMMARY"
-          cat research/crypto/results_v3/audit_v3.json >> "$GITHUB_STEP_SUMMARY"
-          echo '```' >> "$GITHUB_STEP_SUMMARY"
-          echo '--- SUMMARY_V3_JSON ---'
-          cat research/crypto/results_v3/summary_v3.json
+          echo '--- HOURLY_SETUP_METRICS ---'
+          cat research/crypto/results_hourly_setup/metrics_hourly_setup.csv
           echo '--- AUDIT_V3_JSON ---'
           cat research/crypto/results_v3/audit_v3.json
-          echo '--- AUDIT_YEARLY_CSV ---'
-          cat research/crypto/results_v3/audit_yearly.csv
-          echo '--- RESULT_FILES ---'
-          find research/crypto/results_v3 -maxdepth 1 -type f -printf '%f %s bytes\n' | sort
       - uses: actions/upload-artifact@v4
         with:
-          name: btc-backtest-results-v3-audited
-          path: research/crypto/results_v3/**
+          name: btc-hourly-setup-backtest
+          path: |
+            research/crypto/results_hourly_setup/**
+            research/crypto/results_v3/audit_v3.json
+            research/crypto/results_v3/audit_yearly.csv
           if-no-files-found: error
           retention-days: 30
