@@ -29,9 +29,24 @@ jobs:
       - run: pip install -r research/crypto/requirements.txt
       - name: Run research pipeline
         run: python research/crypto/run_fixed.py
+      - name: Verify and publish metrics
+        run: |
+          set -euo pipefail
+          test -s research/crypto/results_v2/summary_v2.json
+          test -s research/crypto/results_v2/test_metrics.csv
+          echo '## BTC backtest v2' >> "$GITHUB_STEP_SUMMARY"
+          echo '```json' >> "$GITHUB_STEP_SUMMARY"
+          cat research/crypto/results_v2/summary_v2.json >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          echo '--- SUMMARY_V2_JSON ---'
+          cat research/crypto/results_v2/summary_v2.json
+          echo '--- TEST_METRICS_CSV ---'
+          cat research/crypto/results_v2/test_metrics.csv
+          echo '--- RESULT_FILES ---'
+          find research/crypto/results_v2 -maxdepth 1 -type f -printf '%f %s bytes\n' | sort
       - uses: actions/upload-artifact@v4
-        if: always()
         with:
           name: btc-backtest-results-v2
-          path: research/crypto/results_v2/
-          if-no-files-found: warn
+          path: research/crypto/results_v2/**
+          if-no-files-found: error
+          retention-days: 30
